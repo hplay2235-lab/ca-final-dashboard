@@ -1,96 +1,97 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 
-# =========================================================
+# =====================================
 # PAGE CONFIG
-# =========================================================
+# =====================================
 
 st.set_page_config(
-    page_title="CA Final Dashboard",
+    page_title="CA Final Tracker",
     page_icon="📚",
     layout="wide"
 )
 
-# =========================================================
-# DATABASE CONNECTION
-# =========================================================
+# =====================================
+# DATABASE
+# =====================================
 
-conn = sqlite3.connect("database/ca_dashboard.db")
+conn = sqlite3.connect("study_tracker.db")
 cursor = conn.cursor()
 
-cursor.execute('''
+cursor.execute("""
 CREATE TABLE IF NOT EXISTS study_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    study_date TEXT,
+    date TEXT,
     subject TEXT,
-    chapter TEXT,
     hours REAL,
     topic TEXT
 )
-''')
+""")
 
 conn.commit()
 
-# =========================================================
-# SUBJECT DATA
-# =========================================================
-
-subjects = {
-    "FR": 200,
-    "AFM": 200,
-    "DT": 200,
-    "IDT": 110,
-    "Audit": 110
-}
-
-# =========================================================
-# SESSION STATE
-# =========================================================
-
-if "progress_df" not in st.session_state:
-
-    st.session_state.progress_df = pd.DataFrame({
-        "Subject": list(subjects.keys()),
-        "Total Hours": list(subjects.values()),
-        "Completed Hours": [0, 0, 10, 65, 0]
-    })
-
-# =========================================================
+# =====================================
 # TITLE
-# =========================================================
+# =====================================
 
-st.title("📚 CA Final Nov 2026 Dashboard")
+st.title("📚 CA Final Nov 2026 Tracker")
 
-st.markdown("Track lectures, revisions, study logs, and progress.")
-
-# =========================================================
+# =====================================
 # EXAM COUNTDOWN
-# =========================================================
+# =====================================
 
 exam_date = datetime(2026, 11, 2)
 today = datetime.today()
 
-remaining_days = (exam_date - today).days
+days_left = (exam_date - today).days
 
-col1, col2 = st.columns(2)
+st.metric("Days Left For Exams", days_left)
 
-col1.metric("Days Remaining", remaining_days)
-col2.metric("Months Remaining", round(remaining_days / 30, 1))
+# =====================================
+# SUBJECT DATA
+# =====================================
 
-# =========================================================
+if "subjects" not in st.session_state:
+
+    st.session_state.subjects = pd.DataFrame({
+        "Subject": [
+            "FR",
+            "AFM",
+            "DT",
+            "IDT",
+            "Audit"
+        ],
+        "Total Hours": [
+            200,
+            200,
+            200,
+            110,
+            110
+        ],
+        "Completed Hours": [
+            0,
+            0,
+            10,
+            65,
+            0
+        ]
+    })
+
+# =====================================
 # EDITABLE TRACKER
-# =========================================================
+# =====================================
 
-st.subheader("✏️ Lecture Tracker")
+st.subheader("Lecture Tracker")
 
 edited_df = st.data_editor(
-    st.session_state.progress_df,
-    use_container_width=True,
-    num_rows="fixed"
+    st.session_state.subjects,
+    use_container_width=True
 )
+
+# =====================================
+# AUTO CALCULATIONS
+# =====================================
 
 edited_df["Remaining Hours"] = (
     edited_df["Total Hours"]
@@ -105,59 +106,63 @@ edited_df["Completion %"] = round(
     2
 )
 
-st.session_state.progress_df = edited_df
+st.session_state.subjects = edited_df
 
-# =========================================================
-# OVERALL METRICS
-# =========================================================
+# =====================================
+# SHOW TABLE
+# =====================================
 
-st.subheader("📈 Overall Progress")
+st.dataframe(
+    edited_df,
+    use_container_width=True,
+    hide_index=True
+)
+
+# =====================================
+# OVERALL PROGRESS
+# =====================================
 
 total_hours = edited_df["Total Hours"].sum()
-completed_hours = edited_df["Completed Hours"].sum()
-remaining_hours = edited_df["Remaining Hours"].sum()
 
-completion_percentage = round(
+completed_hours = edited_df["Completed Hours"].sum()
+
+overall_progress = round(
     (completed_hours / total_hours) * 100,
     2
 )
 
-m1, m2, m3, m4 = st.columns(4)
-
-m1.metric("Total Hours", total_hours)
-m2.metric("Completed", completed_hours)
-m3.metric("Remaining", remaining_hours)
-m4.metric("Completion", f"{completion_percentage}%")
-
-st.progress(completion_percentage / 100)
-
-# =========================================================
-# CHART
-# =========================================================
-
-st.subheader("📊 Completion Chart")
-
-fig = px.bar(
-    edited_df,
-    x="Subject",
-    y="Completion %",
-    text="Completion %"
+st.metric(
+    "Overall Completion",
+    f"{overall_progress}%"
 )
 
-fig.update_traces(textposition="outside")
-fig.update_layout(yaxis_range=[0, 100])
+st.progress(overall_progress / 100)
 
-st.plotly_chart(fig, use_container_width=True)
+# =====================================
+# DAILY TARGET
+# =====================================
 
-# =========================================================
-# DAILY STUDY LOGS
-# =========================================================
+remaining_hours = edited_df["Remaining Hours"].sum()
 
-st.subheader("📝 Daily Study Logs")
+daily_target = round(
+    remaining_hours / max(days_left, 1),
+    2
+)
 
-with st.form("study_log_form"):
+st.metric(
+    "Daily Hours Needed",
+    daily_target
+)
 
-    study_date = st.date_input("Study Date")
+# =====================================
+# DAILY STUDY LOG
+# =====================================
+
+st.subheader("Daily Study Log")
+
+with st.form("study_form"):
+
+    study_date = st.date_input("Date")
 
     subject = st.selectbox(
         "Subject",
@@ -173,40 +178,68 @@ with st.form("study_log_form"):
 
     topic = st.text_input("Topic Covered")
 
-    submitted = st.form_submit_button("Add Log")
+    submit = st.form_submit_button("Save")
 
-    if submitted:
+    if submit:
 
-        cursor.execute('''
+        cursor.execute("""
         INSERT INTO study_logs (
-            study_date,
+            date,
             subject,
-            chapter,
             hours,
             topic
-        ) VALUES (?, ?, ?, ?, ?)
-        ''', (
+        )
+        VALUES (?, ?, ?, ?)
+        """, (
             str(study_date),
             subject,
-            "General",
             hours,
             topic
         ))
 
         conn.commit()
 
-        st.success("Study log added successfully.")
+        # AUTO UPDATE HOURS
 
-# =========================================================
-# SHOW LOGS
-# =========================================================
+        row_index = edited_df[
+            edited_df["Subject"] == subject
+        ].index[0]
+
+        current_hours = edited_df.loc[
+            row_index,
+            "Completed Hours"
+        ]
+
+        total_subject_hours = edited_df.loc[
+            row_index,
+            "Total Hours"
+        ]
+
+        updated_hours = current_hours + hours
+
+        if updated_hours > total_subject_hours:
+
+            updated_hours = total_subject_hours
+
+        edited_df.loc[
+            row_index,
+            "Completed Hours"
+        ] = updated_hours
+
+        st.session_state.subjects = edited_df
+
+        st.success("Study log saved")
+
+# =====================================
+# SHOW STUDY LOGS
+# =====================================
+
+st.subheader("Study History")
 
 logs_df = pd.read_sql_query(
-    "SELECT * FROM study_logs ORDER BY study_date DESC",
+    "SELECT * FROM study_logs",
     conn
 )
-
-st.subheader("📚 Study Log History")
 
 st.dataframe(
     logs_df,
@@ -214,11 +247,57 @@ st.dataframe(
     hide_index=True
 )
 
-# =========================================================
-# AI TASK GENERATOR
-# =========================================================
+# =====================================
+# REVISION TRACKER
+# =====================================
 
-st.subheader("🎯 Smart Daily Tasks")
+st.subheader("Revision Tracker")
+
+if "revision" not in st.session_state:
+
+    st.session_state.revision = pd.DataFrame({
+        "Subject": [
+            "FR",
+            "AFM",
+            "DT",
+            "IDT",
+            "Audit"
+        ],
+        "1st Revision": [
+            False,
+            False,
+            False,
+            False,
+            False
+        ],
+        "2nd Revision": [
+            False,
+            False,
+            False,
+            False,
+            False
+        ],
+        "Final Revision": [
+            False,
+            False,
+            False,
+            False,
+            False
+        ]
+    })
+
+revision_df = st.data_editor(
+    st.session_state.revision,
+    use_container_width=True
+)
+
+st.session_state.revision = revision_df
+
+# =====================================
+# DAILY TASKS
+# =====================================
+
+st.subheader("Today's Focus")
 
 priority_df = edited_df.sort_values(
     by="Remaining Hours",
@@ -227,36 +306,14 @@ priority_df = edited_df.sort_values(
 
 for index, row in priority_df.iterrows():
 
-    suggested_hours = round(
-        row["Remaining Hours"] / max(remaining_days, 1),
-        1
+    st.write(
+        f"• {row['Subject']} → {row['Remaining Hours']} hrs remaining"
     )
 
-    st.info(
-        f"Study {row['Subject']} for {suggested_hours} hrs today"
-    )
-
-# =========================================================
-# REVISION SCHEDULER
-# =========================================================
-
-st.subheader("🔁 Revision Scheduler")
-
-st.write(
-    f"1st Revision Suggested: {(today + timedelta(days=3)).strftime('%d %b %Y')}"
-)
-
-st.write(
-    f"2nd Revision Suggested: {(today + timedelta(days=7)).strftime('%d %b %Y')}"
-)
-
-st.write(
-    f"Final Revision Suggested: {(today + timedelta(days=15)).strftime('%d %b %Y')}"
-)
-
-# =========================================================
+# =====================================
 # FOOTER
-# =========================================================
+# =====================================
 
 st.markdown("---")
-st.caption("CA Final Smart Dashboard")
+
+st.caption("CA Final Smart Tracker")
